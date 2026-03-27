@@ -1,0 +1,669 @@
+openapi: "3.1.0"
+info:
+  title: WAID — WhatsApp Identity Resolver
+  description: |
+    WAID resolves WhatsApp identities across the phone-number → BSUID transition.
+    All endpoints require the `X-API-Key` header when `WAID_SERVER_API_KEY` is configured.
+  version: "0.1.0"
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: health
+    description: Service liveness
+  - name: resolve
+    description: Identity resolution
+  - name: contacts
+    description: Contact registry CRUD
+  - name: import
+    description: Bulk contact import
+  - name: inbound
+    description: Inbound webhook adapters
+  - name: webhooks
+    description: Outbound webhook targets
+
+security:
+  - ApiKeyHeader: []
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Service liveness check
+      description: Returns HTTP 200 when the service is running and can reach the database.
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /resolve/{phone_or_id}:
+    get:
+      operationId: resolveIdentity
+      tags: [resolve]
+      summary: Resolve a phone number or BSUID to a contact
+      description: |
+        Looks up the contact registry by BSUID first, then by phone number.
+        If `resolver.auto_create` is enabled and no match is found, a new contact
+        is created and returned with `match_type: "created"`.
+      parameters:
+        - name: phone_or_id
+          in: path
+          required: true
+          description: E.164 phone number (e.g. `+5511999990000`) or BSUID string
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resolution result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityResult"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /contacts:
+    post:
+      operationId: createContact
+      tags: [contacts]
+      summary: Create a contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactRequest"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List contacts (paginated)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number (1-based)
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: Results per page
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search query matched against name and phone
+      responses:
+        "200":
+          description: Paginated contact list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactListResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /contacts/{id}:
+    get:
+      operationId: getContact
+      tags: [contacts]
+      summary: Get a contact by ID
+      parameters:
+        - $ref: "#/components/parameters/ContactId"
+      responses:
+        "200":
+          description: Contact found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      operationId: updateContact
+      tags: [contacts]
+      summary: Partial update of a contact
+      description: Only provided fields are modified; omitted fields are left unchanged.
+      parameters:
+        - $ref: "#/components/parameters/ContactId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContactRequest"
+      responses:
+        "200":
+          description: Updated contact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteContact
+      tags: [contacts]
+      summary: Soft-delete a contact
+      parameters:
+        - $ref: "#/components/parameters/ContactId"
+      responses:
+        "204":
+          description: Contact deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /import:
+    post:
+      operationId: importContacts
+      tags: [import]
+      summary: Bulk-upsert contacts from a file
+      description: |
+        Accepts a `multipart/form-data` request with a `file` field containing
+        a CSV or JSON file. Rows are upserted by phone number.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV or JSON file of contacts
+      responses:
+        "200":
+          description: Import report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          description: File could not be parsed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /inbound/{source}:
+    post:
+      operationId: inboundWebhook
+      tags: [inbound]
+      summary: Receive a raw WhatsApp gateway webhook event
+      description: |
+        The body format is specific to the adapter indicated by `{source}`.
+        WAID normalizes it to an `InboundEvent` and runs identity resolution.
+
+        Supported sources: `waha`, `evolution`, `meta`, `generic`
+      parameters:
+        - name: source
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [waha, evolution, meta, generic]
+          description: WhatsApp gateway adapter name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw payload from the gateway (structure is adapter-specific)
+      responses:
+        "200":
+          description: Parsed and normalized inbound event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboundEvent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Unknown source adapter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /inbound/meta:
+    get:
+      operationId: metaWebhookVerify
+      tags: [inbound]
+      summary: Meta Cloud API webhook verification handshake
+      description: |
+        Meta sends a GET request with `hub.mode`, `hub.verify_token`, and
+        `hub.challenge`. WAID validates the token against `WAID_META_VERIFY_TOKEN`
+        and echoes the challenge string in the response body.
+      parameters:
+        - name: hub.mode
+          in: query
+          schema:
+            type: string
+        - name: hub.verify_token
+          in: query
+          schema:
+            type: string
+        - name: hub.challenge
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Challenge echoed — verification successful
+          content:
+            text/plain:
+              schema:
+                type: string
+        "403":
+          description: Token mismatch — verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /webhooks:
+    post:
+      operationId: createWebhook
+      tags: [webhooks]
+      summary: Register a webhook target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookRequest"
+      responses:
+        "201":
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookTarget"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "501":
+          description: Webhook store not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listWebhooks
+      tags: [webhooks]
+      summary: List all active webhook targets
+      responses:
+        "200":
+          description: List of webhook targets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookTarget"
+        "501":
+          description: Webhook store not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /webhooks/{id}:
+    delete:
+      operationId: deleteWebhook
+      tags: [webhooks]
+      summary: Remove a webhook target
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Webhook target UUID
+      responses:
+        "204":
+          description: Webhook removed
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  parameters:
+    ContactId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Contact UUID
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, database, version]
+      properties:
+        status:
+          type: string
+          example: ok
+        database:
+          type: string
+          enum: [ok, error]
+          example: ok
+        version:
+          type: string
+          example: dev
+
+    Contact:
+      type: object
+      required: [id, phone, name, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable internal UUID
+        phone:
+          type: string
+          description: E.164 phone number
+          example: "+5511999990000"
+        bsuid:
+          type: string
+          nullable: true
+          description: Meta Business Suite User ID (null until enriched)
+          example: "ABCD1234"
+        external_id:
+          type: string
+          nullable: true
+          description: Caller-supplied identifier from a CRM or other system
+          example: "crm-42"
+        name:
+          type: string
+          example: "Alice"
+        metadata:
+          type: object
+          description: Arbitrary JSON metadata
+          example: { "tag": "vip" }
+        status:
+          type: string
+          description: Contact status
+          example: "active"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateContactRequest:
+      type: object
+      required: [phone, name]
+      properties:
+        phone:
+          type: string
+          description: Phone number (will be normalized to E.164)
+          example: "+5511999990000"
+        name:
+          type: string
+          example: "Alice"
+        external_id:
+          type: string
+          nullable: true
+          example: "crm-42"
+        metadata:
+          type: object
+          example: { "tag": "vip" }
+
+    UpdateContactRequest:
+      type: object
+      description: All fields are optional; only provided fields are updated.
+      properties:
+        name:
+          type: string
+          example: "Alice Smith"
+        external_id:
+          type: string
+          nullable: true
+          example: "crm-42"
+        status:
+          type: string
+          example: "active"
+        metadata:
+          type: object
+          example: { "tag": "vip" }
+
+    ContactListResponse:
+      type: object
+      required: [data, total, page, per_page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contact"
+        total:
+          type: integer
+          example: 120
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 50
+
+    InboundEvent:
+      type: object
+      required: [source_id, phone, source, timestamp]
+      properties:
+        source_id:
+          type: string
+          description: Gateway-assigned message or event ID
+          example: "wamid.HBgLNTUx..."
+        phone:
+          type: string
+          description: E.164 sender phone number
+          example: "+5511999990000"
+        bsuid:
+          type: string
+          nullable: true
+          description: Sender BSUID if provided by the gateway
+          example: "ABCD1234"
+        display_name:
+          type: string
+          description: Sender display name as reported by the gateway
+          example: "Alice"
+        source:
+          type: string
+          description: Adapter that parsed this event
+          enum: [waha, evolution, meta, generic]
+          example: "waha"
+        raw_payload:
+          type: object
+          description: Original raw JSON payload from the gateway
+        timestamp:
+          type: string
+          format: date-time
+
+    IdentityResult:
+      type: object
+      required: [match_type, confidence, resolved_at]
+      properties:
+        contact:
+          $ref: "#/components/schemas/Contact"
+          nullable: true
+        match_type:
+          type: string
+          description: Which key was used to find or create the contact
+          enum: [phone, bsuid, created, not_found]
+          example: "phone"
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          example: 1.0
+        resolved_at:
+          type: string
+          format: date-time
+
+    ImportReport:
+      type: object
+      required: [total, created, updated, errors]
+      properties:
+        total:
+          type: integer
+          example: 500
+        created:
+          type: integer
+          example: 480
+        updated:
+          type: integer
+          example: 15
+        errors:
+          type: integer
+          example: 5
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportError"
+
+    ImportError:
+      type: object
+      required: [row, phone, reason]
+      properties:
+        row:
+          type: integer
+          description: 1-based row number in the source file
+          example: 12
+        phone:
+          type: string
+          example: "invalid"
+        reason:
+          type: string
+          example: "invalid phone number"
+
+    WebhookTarget:
+      type: object
+      required: [id, url, events, active, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          example: "https://your-service.example/hook"
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - contact.resolved
+              - contact.created
+              - contact.updated
+              - contact.not_found
+          example: ["contact.resolved", "contact.created"]
+        secret:
+          type: string
+          description: HMAC signing secret (omitted in list responses)
+        active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          example: "https://your-service.example/hook"
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - contact.resolved
+              - contact.created
+              - contact.updated
+              - contact.not_found
+          example: ["contact.resolved", "contact.created"]
+        secret:
+          type: string
+          description: Optional HMAC secret for payload signing
+          example: "hmac-signing-secret"
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: "contact not found"

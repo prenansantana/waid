@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS webhook_targets (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '[]',
+    secret TEXT DEFAULT '',
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

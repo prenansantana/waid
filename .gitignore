@@ -1,0 +1,59 @@
+# Binaries
+waid
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dist/
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Vendor
+vendor/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Config files with secrets
+waid.yaml
+
+# Database
+waid.db
+waid.db-shm
+waid.db-wal
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local tooling
+.omc/
+.claude/
+
+# Build artifacts
+tmp/
+build/
+
+# GoReleaser
+dist/

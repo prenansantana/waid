@@ -1,0 +1,85 @@
+version: 2
+
+project_name: waid
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: waid
+    main: ./cmd/waid
+    binary: waid
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    flags:
+      - -trimpath
+
+archives:
+  - id: waid
+    builds:
+      - waid
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - waid.yaml.example
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/prenansantana/waid:{{ .Tag }}-amd64"
+    dockerfile: deploy/docker/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/prenansantana/waid"
+
+  - image_templates:
+      - "ghcr.io/prenansantana/waid:{{ .Tag }}-arm64"
+    dockerfile: deploy/docker/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/prenansantana/waid"
+
+docker_manifests:
+  - name_template: "ghcr.io/prenansantana/waid:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/prenansantana/waid:{{ .Tag }}-amd64"
+      - "ghcr.io/prenansantana/waid:{{ .Tag }}-arm64"
+
+  - name_template: "ghcr.io/prenansantana/waid:latest"
+    image_templates:
+      - "ghcr.io/prenansantana/waid:{{ .Tag }}-amd64"
+      - "ghcr.io/prenansantana/waid:{{ .Tag }}-arm64"

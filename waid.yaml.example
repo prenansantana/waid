@@ -1,0 +1,19 @@
+server:
+  port: 8080
+  api_key: "change-me"
+
+database:
+  driver: sqlite   # sqlite | postgres
+  url: waid.db     # file path for sqlite, connection string for postgres
+  # url: "postgres://user:pass@localhost:5432/waid?sslmode=disable"
+
+nats:
+  embedded: true
+  url: "nats://localhost:4222"
+
+resolver:
+  auto_create: true
+
+logging:
+  level: info    # debug | info | warn | error
+  format: json   # json | text

@@ -1,0 +1,66 @@
+services:
+  waid:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      WAID_DATABASE_DRIVER: postgres
+      WAID_DATABASE_URL: postgres://waid:waid@postgres:5432/waid?sslmode=disable
+      WAID_NATS_EMBEDDED: "false"
+      WAID_NATS_URL: nats://nats:4222
+      WAID_SERVER_PORT: "8080"
+      WAID_LOGGING_FORMAT: json
+      WAID_LOGGING_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: waid
+      POSTGRES_USER: waid
+      POSTGRES_PASSWORD: waid
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waid -d waid"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:latest
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+
+  # waid-sqlite profile: run waid standalone with SQLite, no postgres/nats deps
+  waid-sqlite:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles:
+      - waid-sqlite
+    ports:
+      - "8080:8080"
+    environment:
+      WAID_DATABASE_DRIVER: sqlite
+      WAID_DATABASE_URL: /data/waid.db
+      WAID_NATS_EMBEDDED: "true"
+      WAID_NATS_URL: ""
+      WAID_SERVER_PORT: "8080"
+      WAID_LOGGING_FORMAT: json
+      WAID_LOGGING_LEVEL: info
+    volumes:
+      - waid_sqlite_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  waid_sqlite_data:
