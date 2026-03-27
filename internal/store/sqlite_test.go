@@ -133,6 +133,49 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
+func TestWhatsAppID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	waID := "123456789@s.whatsapp.net"
+	c := &model.Contact{Phone: "+5511999990030", Name: "WhatsApp User", Status: "active", WhatsAppID: &waID}
+	if err := s.Create(ctx, c); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// FindByWhatsAppID should return the contact.
+	got, err := s.FindByWhatsAppID(ctx, waID)
+	if err != nil {
+		t.Fatalf("FindByWhatsAppID: %v", err)
+	}
+	if got.ID != c.ID {
+		t.Errorf("got ID %q, want %q", got.ID, c.ID)
+	}
+	if got.WhatsAppID == nil || *got.WhatsAppID != waID {
+		t.Errorf("got WhatsAppID %v, want %q", got.WhatsAppID, waID)
+	}
+
+	// Update should persist WhatsAppID changes.
+	newWAID := "987654321@s.whatsapp.net"
+	c.WhatsAppID = &newWAID
+	if err := s.Update(ctx, c); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got2, err := s.FindByID(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("FindByID after update: %v", err)
+	}
+	if got2.WhatsAppID == nil || *got2.WhatsAppID != newWAID {
+		t.Errorf("after update, got WhatsAppID %v, want %q", got2.WhatsAppID, newWAID)
+	}
+
+	// FindByWhatsAppID with unknown ID should return ErrNotFound.
+	_, err = s.FindByWhatsAppID(ctx, "unknown@s.whatsapp.net")
+	if err == nil {
+		t.Error("expected ErrNotFound for unknown WhatsApp ID")
+	}
+}
+
 func TestDelete(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

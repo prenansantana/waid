@@ -80,6 +80,29 @@ func TestWAHAAdapter_MalformedPayload(t *testing.T) {
 	}
 }
 
+func TestWAHAAdapter_GroupJIDFiltered(t *testing.T) {
+	payload := `{"event":"message","payload":{"from":"120363000000000@g.us","body":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
+	a := &adapter.WAHAAdapter{}
+	_, err := a.ParseWebhook(req)
+	if err == nil {
+		t.Fatal("expected error for group JID")
+	}
+}
+
+func TestWAHAAdapter_WhatsAppIDPopulated(t *testing.T) {
+	payload := `{"event":"message","payload":{"from":"5511999990000@c.us","body":"hello"}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
+	a := &adapter.WAHAAdapter{}
+	event, err := a.ParseWebhook(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event.WhatsAppID == nil || *event.WhatsAppID != "5511999990000@c.us" {
+		t.Fatalf("expected WhatsAppID=5511999990000@c.us, got %v", event.WhatsAppID)
+	}
+}
+
 // --- Evolution adapter tests ---
 
 func TestEvolutionAdapter_ParseWebhook(t *testing.T) {
@@ -119,6 +142,29 @@ func TestEvolutionAdapter_MalformedPayload(t *testing.T) {
 	_, err := a.ParseWebhook(req)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestEvolutionAdapter_GroupJIDFiltered(t *testing.T) {
+	payload := `{"event":"messages.upsert","data":{"key":{"remoteJid":"120363000000000@g.us"},"pushName":"Group"}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
+	a := &adapter.EvolutionAdapter{}
+	_, err := a.ParseWebhook(req)
+	if err == nil {
+		t.Fatal("expected error for group JID")
+	}
+}
+
+func TestEvolutionAdapter_WhatsAppIDPopulated(t *testing.T) {
+	payload := `{"event":"messages.upsert","data":{"key":{"remoteJid":"5511999990000@s.whatsapp.net"},"pushName":"John","message":{}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
+	a := &adapter.EvolutionAdapter{}
+	event, err := a.ParseWebhook(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event.WhatsAppID == nil || *event.WhatsAppID != "5511999990000@s.whatsapp.net" {
+		t.Fatalf("expected WhatsAppID=5511999990000@s.whatsapp.net, got %v", event.WhatsAppID)
 	}
 }
 
@@ -171,6 +217,29 @@ func TestMetaAdapter_MalformedPayload(t *testing.T) {
 	_, err := a.ParseWebhook(req)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestMetaAdapter_WhatsAppIDPopulated(t *testing.T) {
+	payload := `{
+		"object": "whatsapp_business_account",
+		"entry": [{
+			"changes": [{
+				"value": {
+					"messages": [{"from": "5511999990000", "type": "text"}],
+					"contacts": [{"wa_id": "5511999990000", "profile": {"name": "John"}}]
+				}
+			}]
+		}]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
+	a := &adapter.MetaAdapter{}
+	event, err := a.ParseWebhook(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if event.WhatsAppID == nil || *event.WhatsAppID != "5511999990000" {
+		t.Fatalf("expected WhatsAppID=5511999990000, got %v", event.WhatsAppID)
 	}
 }
 

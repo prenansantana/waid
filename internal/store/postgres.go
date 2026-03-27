@@ -79,9 +79,9 @@ func (s *PostgresStore) Create(ctx context.Context, c *model.Contact) error {
 
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO contacts
-		 (id, phone, bsuid, external_id, name, metadata, status, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		c.ID, c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status, c.CreatedAt, c.UpdatedAt,
+		 (id, phone, bsuid, external_id, whatsapp_id, name, metadata, status, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		c.ID, c.Phone, c.BSUID, c.ExternalID, c.WhatsAppID, c.Name, meta, c.Status, c.CreatedAt, c.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("store: create contact: %w", err)
@@ -96,9 +96,9 @@ func (s *PostgresStore) Update(ctx context.Context, c *model.Contact) error {
 
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE contacts
-		 SET phone=$1, bsuid=$2, external_id=$3, name=$4, metadata=$5, status=$6, updated_at=$7
-		 WHERE id=$8 AND deleted_at IS NULL`,
-		c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status, c.UpdatedAt, c.ID,
+		 SET phone=$1, bsuid=$2, external_id=$3, whatsapp_id=$4, name=$5, metadata=$6, status=$7, updated_at=$8
+		 WHERE id=$9 AND deleted_at IS NULL`,
+		c.Phone, c.BSUID, c.ExternalID, c.WhatsAppID, c.Name, meta, c.Status, c.UpdatedAt, c.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update contact: %w", err)
@@ -143,6 +143,14 @@ func (s *PostgresStore) FindByBSUID(ctx context.Context, bsuid string) (*model.C
 func (s *PostgresStore) FindByExternalID(ctx context.Context, extID string) (*model.Contact, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT `+pgContactColumns+` FROM contacts WHERE external_id=$1 AND deleted_at IS NULL LIMIT 1`, extID,
+	)
+	return pgScanContact(row)
+}
+
+// FindByWhatsAppID returns the active Contact with the given WhatsApp ID.
+func (s *PostgresStore) FindByWhatsAppID(ctx context.Context, waID string) (*model.Contact, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+pgContactColumns+` FROM contacts WHERE whatsapp_id=$1 AND deleted_at IS NULL LIMIT 1`, waID,
 	)
 	return pgScanContact(row)
 }
@@ -253,16 +261,17 @@ func (s *PostgresStore) BulkUpsert(ctx context.Context, contacts []model.Contact
 		}
 
 		_, err := tx.Exec(ctx,
-			`INSERT INTO contacts (id, phone, bsuid, external_id, name, metadata, status, created_at, updated_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			`INSERT INTO contacts (id, phone, bsuid, external_id, whatsapp_id, name, metadata, status, created_at, updated_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 			 ON CONFLICT(phone) DO UPDATE SET
 			   bsuid       = EXCLUDED.bsuid,
 			   external_id = EXCLUDED.external_id,
+			   whatsapp_id = EXCLUDED.whatsapp_id,
 			   name        = EXCLUDED.name,
 			   metadata    = EXCLUDED.metadata,
 			   status      = EXCLUDED.status,
 			   updated_at  = EXCLUDED.updated_at`,
-			c.ID, c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status, c.CreatedAt, c.UpdatedAt,
+			c.ID, c.Phone, c.BSUID, c.ExternalID, c.WhatsAppID, c.Name, meta, c.Status, c.CreatedAt, c.UpdatedAt,
 		)
 		if err != nil {
 			if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT `+sp); rbErr != nil {
@@ -292,7 +301,7 @@ func (s *PostgresStore) BulkUpsert(ctx context.Context, contacts []model.Contact
 
 // ---- helpers ----------------------------------------------------------------
 
-const pgContactColumns = `id, phone, bsuid, external_id, name, metadata, status,
+const pgContactColumns = `id, phone, bsuid, external_id, whatsapp_id, name, metadata, status,
 	created_at, updated_at, deleted_at`
 
 func pgScanContact(row pgx.Row) (*model.Contact, error) {
@@ -309,20 +318,22 @@ type pgxScanner interface {
 
 func pgScanContactRow(row pgxScanner) (*model.Contact, error) {
 	var (
-		c         model.Contact
-		bsuid     *string
-		extID     *string
-		meta      *string
-		deletedAt *time.Time
+		c          model.Contact
+		bsuid      *string
+		extID      *string
+		whatsAppID *string
+		meta       *string
+		deletedAt  *time.Time
 	)
 	if err := row.Scan(
-		&c.ID, &c.Phone, &bsuid, &extID, &c.Name, &meta, &c.Status,
+		&c.ID, &c.Phone, &bsuid, &extID, &whatsAppID, &c.Name, &meta, &c.Status,
 		&c.CreatedAt, &c.UpdatedAt, &deletedAt,
 	); err != nil {
 		return nil, err
 	}
 	c.BSUID = bsuid
 	c.ExternalID = extID
+	c.WhatsAppID = whatsAppID
 	c.DeletedAt = deletedAt
 	if meta != nil && *meta != "" {
 		c.Metadata = json.RawMessage(*meta)

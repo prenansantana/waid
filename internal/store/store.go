@@ -23,6 +23,7 @@ type Store interface {
 	FindByPhone(ctx context.Context, phone string) (*model.Contact, error)
 	FindByBSUID(ctx context.Context, bsuid string) (*model.Contact, error)
 	FindByExternalID(ctx context.Context, extID string) (*model.Contact, error)
+	FindByWhatsAppID(ctx context.Context, waID string) (*model.Contact, error)
 	FindByID(ctx context.Context, id string) (*model.Contact, error)
 	Create(ctx context.Context, c *model.Contact) error
 	Update(ctx context.Context, c *model.Contact) error

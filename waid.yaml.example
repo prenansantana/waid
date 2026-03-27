@@ -13,6 +13,7 @@ nats:
 
 resolver:
   auto_create: true
+  default_country: "BR"
 
 logging:
   level: info    # debug | info | warn | error

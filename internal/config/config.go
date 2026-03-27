@@ -38,7 +38,8 @@ type NATSConfig struct {
 
 // ResolverConfig holds identity resolution settings.
 type ResolverConfig struct {
-	AutoCreate bool `mapstructure:"auto_create"`
+	AutoCreate     bool   `mapstructure:"auto_create"`
+	DefaultCountry string `mapstructure:"default_country"`
 }
 
 // LoggingConfig holds logging settings.
@@ -67,6 +68,7 @@ func Load() (*Config, error) {
 	v.SetDefault("nats.embedded", true)
 	v.SetDefault("nats.url", "nats://localhost:4222")
 	v.SetDefault("resolver.auto_create", true)
+	v.SetDefault("resolver.default_country", "BR")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.format", "json")
 

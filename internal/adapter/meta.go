@@ -43,7 +43,7 @@ type metaMessage struct {
 }
 
 type metaContact struct {
-	WaID    string          `json:"wa_id"`
+	WaID    string             `json:"wa_id"`
 	Profile metaContactProfile `json:"profile"`
 }
 
@@ -76,14 +76,19 @@ func (a *MetaAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error)
 		return nil, errMissingField("messages[0].from")
 	}
 
-	normalized, err := phone.Normalize(msg.From)
+	normalized, err := phone.Normalize("+"+msg.From, "")
 	if err != nil {
 		return nil, err
 	}
 
 	var displayName string
+	var whatsAppID *string
 	if len(value.Contacts) > 0 {
 		displayName = value.Contacts[0].Profile.Name
+		waID := value.Contacts[0].WaID
+		if waID != "" {
+			whatsAppID = &waID
+		}
 	}
 
 	raw, _ := json.Marshal(p)
@@ -91,6 +96,7 @@ func (a *MetaAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error)
 		SourceID:    msg.From,
 		Phone:       normalized,
 		DisplayName: displayName,
+		WhatsAppID:  whatsAppID,
 		Source:      a.Name(),
 		RawPayload:  json.RawMessage(raw),
 		Timestamp:   time.Now().UTC(),

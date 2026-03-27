@@ -1,6 +1,6 @@
 # WAID — WhatsApp Identity Resolver
 
-> WAHA resolves transport. WAID resolves identity.
+> Open-source middleware that resolves WhatsApp contacts to your business customer records.
 
 [![Go](https://img.shields.io/badge/go-1.22+-00ADD8?logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -8,11 +8,25 @@
 
 ---
 
-## What is WAID?
+## The Problem
 
-WhatsApp is transitioning from phone-number-based addressing to opaque Business Suite User IDs (BSUIDs) — rolling out broadly by June 2026. This creates an identity resolution problem: the same human contact may arrive via phone number today and via BSUID tomorrow.
+Your business receives hundreds of WhatsApp messages every day. A message arrives from +55 (62) 98576-4545 — but who is this person in your CRM? Is it a patient, a customer, a lead? Without instant identity resolution, your team wastes time looking them up manually, or worse, responds without context.
 
-**WAID** is a lightweight service that sits between your WhatsApp gateway (WAHA, Evolution API, Meta Cloud API, or a generic webhook) and your application. It maintains a contact registry keyed by both phone and BSUID, resolves inbound events to a stable identity, and notifies your systems via webhooks.
+**WAID** sits between your WhatsApp gateway and your application. When a message arrives, WAID instantly resolves the sender's phone number to a contact record in your database and notifies your systems via webhook — in under 5ms.
+
+---
+
+## Key Features
+
+- **Identity resolution in <5ms** — phone number maps to your customer record before your handler even starts
+- **Multi-source adapters** — works with WAHA, Evolution API, Meta Cloud API, and a generic webhook format
+- **Smart phone normalization** — handles local numbers like `(62) 98576-4545` with a configurable default country code
+- **Auto-create contacts** — unknown numbers automatically become pending contacts with the WhatsApp display name
+- **Real-time webhooks** — fires `contact.resolved`, `contact.created`, `contact.not_found` to your registered endpoints
+- **WhatsApp metadata capture** — always stores `whatsapp_name` and `whatsapp_photo` on resolution
+- **Zero-config mode** — SQLite + embedded NATS, just run the binary
+- **Production mode** — PostgreSQL + external NATS for scale
+- **Forward-compatible with Meta BSUID** — when Meta rolls out opaque user IDs, WAID handles them without schema changes
 
 ---
 
@@ -27,9 +41,10 @@ WhatsApp is transitioning from phone-number-based addressing to opaque Business 
                      ▼
 ┌─────────────────────────────────────────────────┐
 │               Resolver Engine                   │
-│  1. Try BSUID lookup                            │
-│  2. Fall back to phone lookup                   │
-│  3. Auto-create if resolver.auto_create = true  │
+│  1. Normalize phone (local → E.164)             │
+│  2. Try BSUID lookup (if present)               │
+│  3. Phone lookup against contact registry       │
+│  4. Auto-create if resolver.auto_create = true  │
 └──────────┬──────────────────────────┬───────────┘
            │                          │
            ▼                          ▼
@@ -38,6 +53,48 @@ WhatsApp is transitioning from phone-number-based addressing to opaque Business 
 │  SQLite / PG     │       │  Webhooks (HMAC)     │
 │                  │       │  NATS events         │
 └──────────────────┘       └──────────────────────┘
+```
+
+---
+
+## Real-World Example: Medical Clinic
+
+A clinic receives 500+ WhatsApp messages per day from patients scheduling appointments, asking about results, or requesting prescriptions.
+
+**Setup (one time):**
+
+1. Import your patient database — WAID accepts CSV with local phone numbers:
+   ```bash
+   curl -X POST http://localhost:8080/import \
+     -H "X-API-Key: your-key" \
+     -F "file=@patients.csv"
+   ```
+
+2. Register your CRM webhook so WAID notifies it on every resolution:
+   ```bash
+   curl -X POST http://localhost:8080/webhooks \
+     -H "X-API-Key: your-key" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://crm.clinic.com/hooks/waid","events":["contact.resolved","contact.created"]}'
+   ```
+
+3. Point your WhatsApp gateway (e.g. WAHA) at WAID's inbound endpoint.
+
+**Runtime — patient sends a message:**
+
+```
+Patient: +55 (62) 98576-4545  →  WAID resolver
+WAID normalizes: +5562985764545
+WAID matches: Maria Oliveira, patient_id=8821, last_visit=2026-02-10
+WAID fires webhook → CRM opens patient record in <5ms
+```
+
+**Unknown number:**
+
+```
+Unregistered caller  →  WAID auto-creates pending contact
+whatsapp_name: "João"  →  CRM receives contact.created event
+Staff follows up and links to full record
 ```
 
 ---
@@ -78,18 +135,20 @@ cp waid.yaml.example waid.yaml
 
 ### Reference
 
-| Environment Variable      | YAML key                  | Default                    | Description                                               |
-|---------------------------|---------------------------|----------------------------|-----------------------------------------------------------|
-| `WAID_SERVER_PORT`        | `server.port`             | `8080`                     | HTTP listen port                                          |
-| `WAID_SERVER_API_KEY`     | `server.api_key`          | *(empty — auth disabled)*  | API key sent via `X-API-Key` header                       |
-| `WAID_DATABASE_DRIVER`    | `database.driver`         | `sqlite`                   | Database backend: `sqlite` or `postgres`                  |
-| `WAID_DATABASE_URL`       | `database.url`            | `waid.db`                  | File path (SQLite) or connection string (PostgreSQL)      |
-| `WAID_NATS_EMBEDDED`      | `nats.embedded`           | `true`                     | Run an embedded NATS server instead of connecting to one  |
-| `WAID_NATS_URL`           | `nats.url`                | `nats://localhost:4222`    | NATS server URL (used when `embedded` is `false`)         |
-| `WAID_RESOLVER_AUTO_CREATE` | `resolver.auto_create`  | `true`                     | Auto-create a contact when an unknown identity is seen    |
-| `WAID_LOGGING_LEVEL`      | `logging.level`           | `info`                     | Log level: `debug`, `info`, `warn`, `error`               |
-| `WAID_LOGGING_FORMAT`     | `logging.format`          | `json`                     | Log format: `json` or `text`                              |
-| `WAID_META_VERIFY_TOKEN`  | `meta.verify_token`       | *(empty)*                  | Token for Meta Cloud API webhook verification handshake   |
+| Environment Variable                | YAML key                    | Default                    | Description                                                                      |
+|-------------------------------------|-----------------------------|----------------------------|----------------------------------------------------------------------------------|
+| `WAID_SERVER_PORT`                  | `server.port`               | `8080`                     | HTTP listen port                                                                 |
+| `WAID_SERVER_API_KEY`               | `server.api_key`            | *(empty — auth disabled)*  | API key sent via `X-API-Key` header                                              |
+| `WAID_SERVER_CORS_ORIGINS`          | `server.cors_origins`       | `["*"]`                    | Allowed CORS origins (e.g. `["https://app.example.com"]`)                        |
+| `WAID_DATABASE_DRIVER`              | `database.driver`           | `sqlite`                   | Database backend: `sqlite` or `postgres`                                         |
+| `WAID_DATABASE_URL`                 | `database.url`              | `waid.db`                  | File path (SQLite) or connection string (PostgreSQL)                             |
+| `WAID_NATS_EMBEDDED`                | `nats.embedded`             | `true`                     | Run an embedded NATS server instead of connecting to one                         |
+| `WAID_NATS_URL`                     | `nats.url`                  | `nats://localhost:4222`    | NATS server URL (used when `embedded` is `false`)                                |
+| `WAID_RESOLVER_AUTO_CREATE`         | `resolver.auto_create`      | `true`                     | Auto-create a contact when an unknown identity is seen                           |
+| `WAID_RESOLVER_DEFAULT_COUNTRY`     | `resolver.default_country`  | `BR`                       | ISO 3166-1 alpha-2 country code used when normalizing local phone numbers        |
+| `WAID_LOGGING_LEVEL`                | `logging.level`             | `info`                     | Log level: `debug`, `info`, `warn`, `error`                                      |
+| `WAID_LOGGING_FORMAT`               | `logging.format`            | `json`                     | Log format: `json` or `text`                                                     |
+| `WAID_META_VERIFY_TOKEN`            | `meta.verify_token`         | *(empty)*                  | Token for Meta Cloud API webhook verification handshake                          |
 
 ### Example `waid.yaml`
 
@@ -97,6 +156,8 @@ cp waid.yaml.example waid.yaml
 server:
   port: 8080
   api_key: "change-me"
+  cors_origins:
+    - "https://app.example.com"
 
 database:
   driver: sqlite
@@ -110,6 +171,7 @@ nats:
 
 resolver:
   auto_create: true
+  default_country: "BR"
 
 logging:
   level: info
@@ -120,7 +182,7 @@ logging:
 
 ## API Reference
 
-All endpoints require the `X-API-Key` header when `WAID_SERVER_API_KEY` is set.
+All endpoints except `/inbound/*` require the `X-API-Key` header when `WAID_SERVER_API_KEY` is set.
 
 ### Health
 
@@ -143,7 +205,7 @@ Returns service liveness and database connectivity.
 
 #### `GET /resolve/{phone_or_id}`
 
-Resolves a phone number or BSUID to a contact identity. The resolver tries BSUID first, then phone. If `resolver.auto_create` is enabled and no match is found, a new contact is created.
+Resolves a phone number or BSUID to a contact identity. The resolver normalizes the phone to E.164 using the configured default country, tries BSUID first (if provided), then phone. If `resolver.auto_create` is enabled and no match is found, a new contact is created.
 
 | Parameter     | Type   | Description                          |
 |---------------|--------|--------------------------------------|
@@ -252,7 +314,7 @@ Soft-deletes a contact.
 
 #### `POST /import`
 
-Bulk-upserts contacts from a CSV or JSON file upload.
+Bulk-upserts contacts from a CSV or JSON file upload. Phone numbers are normalized using `WAID_RESOLVER_DEFAULT_COUNTRY` for local numbers without a country code.
 
 **Request** — `multipart/form-data` with a `file` field containing a CSV or JSON file.
 
@@ -275,7 +337,7 @@ Bulk-upserts contacts from a CSV or JSON file upload.
 
 #### `POST /inbound/{source}`
 
-Receives a raw webhook event from a WhatsApp gateway adapter and resolves the identity.
+Receives a raw webhook event from a WhatsApp gateway adapter, resolves the sender identity, and fires outbound webhooks to registered targets. No API key required.
 
 | Parameter | Description                                        |
 |-----------|----------------------------------------------------|
@@ -307,7 +369,7 @@ Meta Cloud API webhook verification handshake. Meta sends a `GET` request with `
 
 #### `POST /webhooks`
 
-Registers a new webhook target.
+Registers a new webhook target. WAID will POST to this URL on every identity resolution event, signed with HMAC-SHA256 using the provided secret.
 
 **Request body**
 ```json
@@ -340,17 +402,27 @@ Removes a webhook target by ID.
 
 ---
 
+## SDKs
+
+| Language   | Package                                                        |
+|------------|----------------------------------------------------------------|
+| TypeScript | `npm install @waid/client` *(coming soon)*                    |
+| Python     | `pip install waid-client` *(coming soon)*                     |
+| Go         | `go get github.com/prenansantana/waid/sdk/go` *(coming soon)* |
+
+---
+
 ## Tech Stack
 
-| Component       | Technology                          |
-|-----------------|-------------------------------------|
-| Language        | Go 1.22+                            |
-| HTTP router     | [chi](https://github.com/go-chi/chi) |
-| Database        | SQLite (default) / PostgreSQL       |
-| Messaging       | NATS (embedded or external)         |
-| Configuration   | [Viper](https://github.com/spf13/viper) |
-| Phone parsing   | Internal `pkg/phone` (E.164 normalization) |
-| Container image | `ghcr.io/prenansantana/waid`        |
+| Component       | Technology                                              |
+|-----------------|---------------------------------------------------------|
+| Language        | Go 1.22+                                                |
+| HTTP router     | [chi](https://github.com/go-chi/chi)                    |
+| Database        | SQLite (default) / PostgreSQL                           |
+| Messaging       | NATS (embedded or external)                             |
+| Configuration   | [Viper](https://github.com/spf13/viper)                 |
+| Phone parsing   | Internal `pkg/phone` (E.164 normalization)              |
+| Container image | `ghcr.io/prenansantana/waid`                            |
 
 ---
 

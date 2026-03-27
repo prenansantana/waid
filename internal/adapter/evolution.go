@@ -2,7 +2,9 @@ package adapter
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/prenansantana/waid/internal/model"
@@ -47,8 +49,16 @@ func (a *EvolutionAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, e
 		return nil, errMissingField("data.key.remoteJid")
 	}
 
+	// Filter group messages.
+	if strings.HasSuffix(data.Key.RemoteJid, "@g.us") {
+		return nil, fmt.Errorf("adapter: group messages not supported")
+	}
+
+	// Preserve original JID as WhatsAppID before stripping.
+	whatsAppID := data.Key.RemoteJid
+
 	stripped := phone.StripJID(data.Key.RemoteJid)
-	normalized, err := phone.Normalize(stripped)
+	normalized, err := phone.Normalize("+"+stripped, "")
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +68,7 @@ func (a *EvolutionAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, e
 		SourceID:    data.Key.RemoteJid,
 		Phone:       normalized,
 		DisplayName: data.PushName,
+		WhatsAppID:  &whatsAppID,
 		Source:      a.Name(),
 		RawPayload:  json.RawMessage(raw),
 		Timestamp:   time.Now().UTC(),

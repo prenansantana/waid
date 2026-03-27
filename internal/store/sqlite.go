@@ -69,9 +69,9 @@ func (s *SQLiteStore) Create(ctx context.Context, c *model.Contact) error {
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO contacts
-		 (id, phone, bsuid, external_id, name, metadata, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status,
+		 (id, phone, bsuid, external_id, whatsapp_id, name, metadata, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.Phone, c.BSUID, c.ExternalID, c.WhatsAppID, c.Name, meta, c.Status,
 		c.CreatedAt.Format(time.RFC3339Nano), c.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -87,9 +87,9 @@ func (s *SQLiteStore) Update(ctx context.Context, c *model.Contact) error {
 
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE contacts
-		 SET phone=?, bsuid=?, external_id=?, name=?, metadata=?, status=?, updated_at=?
+		 SET phone=?, bsuid=?, external_id=?, whatsapp_id=?, name=?, metadata=?, status=?, updated_at=?
 		 WHERE id=? AND deleted_at IS NULL`,
-		c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status,
+		c.Phone, c.BSUID, c.ExternalID, c.WhatsAppID, c.Name, meta, c.Status,
 		c.UpdatedAt.Format(time.RFC3339Nano), c.ID,
 	)
 	if err != nil {
@@ -138,6 +138,14 @@ func (s *SQLiteStore) FindByBSUID(ctx context.Context, bsuid string) (*model.Con
 func (s *SQLiteStore) FindByExternalID(ctx context.Context, extID string) (*model.Contact, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT `+contactColumns+` FROM contacts WHERE external_id=? AND deleted_at IS NULL LIMIT 1`, extID,
+	)
+	return scanContact(row)
+}
+
+// FindByWhatsAppID returns the active Contact with the given WhatsApp ID.
+func (s *SQLiteStore) FindByWhatsAppID(ctx context.Context, waID string) (*model.Contact, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+contactColumns+` FROM contacts WHERE whatsapp_id=? AND deleted_at IS NULL LIMIT 1`, waID,
 	)
 	return scanContact(row)
 }
@@ -227,11 +235,12 @@ func (s *SQLiteStore) BulkUpsert(ctx context.Context, contacts []model.Contact) 
 	defer existsStmt.Close()
 
 	upsertStmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO contacts (id, phone, bsuid, external_id, name, metadata, status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO contacts (id, phone, bsuid, external_id, whatsapp_id, name, metadata, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(phone) DO UPDATE SET
 		   bsuid       = excluded.bsuid,
 		   external_id = excluded.external_id,
+		   whatsapp_id = excluded.whatsapp_id,
 		   name        = excluded.name,
 		   metadata    = excluded.metadata,
 		   status      = excluded.status,
@@ -263,7 +272,7 @@ func (s *SQLiteStore) BulkUpsert(ctx context.Context, contacts []model.Contact) 
 		}
 
 		_, err := upsertStmt.ExecContext(ctx,
-			c.ID, c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status,
+			c.ID, c.Phone, c.BSUID, c.ExternalID, c.WhatsAppID, c.Name, meta, c.Status,
 			c.CreatedAt.Format(time.RFC3339Nano), c.UpdatedAt.Format(time.RFC3339Nano),
 		)
 		if err != nil {
@@ -286,7 +295,7 @@ func (s *SQLiteStore) BulkUpsert(ctx context.Context, contacts []model.Contact) 
 
 // ---- helpers ----------------------------------------------------------------
 
-const contactColumns = `id, phone, bsuid, external_id, name, metadata, status,
+const contactColumns = `id, phone, bsuid, external_id, whatsapp_id, name, metadata, status,
 	created_at, updated_at, deleted_at`
 
 type rowScanner interface {
@@ -303,16 +312,17 @@ func scanContact(row *sql.Row) (*model.Contact, error) {
 
 func scanContactRow(row rowScanner) (*model.Contact, error) {
 	var (
-		c         model.Contact
-		bsuid     sql.NullString
-		extID     sql.NullString
-		meta      sql.NullString
-		createdAt string
-		updatedAt string
-		deletedAt sql.NullString
+		c          model.Contact
+		bsuid      sql.NullString
+		extID      sql.NullString
+		whatsAppID sql.NullString
+		meta       sql.NullString
+		createdAt  string
+		updatedAt  string
+		deletedAt  sql.NullString
 	)
 	if err := row.Scan(
-		&c.ID, &c.Phone, &bsuid, &extID, &c.Name, &meta, &c.Status,
+		&c.ID, &c.Phone, &bsuid, &extID, &whatsAppID, &c.Name, &meta, &c.Status,
 		&createdAt, &updatedAt, &deletedAt,
 	); err != nil {
 		return nil, err
@@ -322,6 +332,9 @@ func scanContactRow(row rowScanner) (*model.Contact, error) {
 	}
 	if extID.Valid {
 		c.ExternalID = &extID.String
+	}
+	if whatsAppID.Valid {
+		c.WhatsAppID = &whatsAppID.String
 	}
 	if meta.Valid && meta.String != "" {
 		c.Metadata = json.RawMessage(meta.String)

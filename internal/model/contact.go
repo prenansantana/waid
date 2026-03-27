@@ -9,16 +9,17 @@ import (
 
 // Contact represents a resolved WhatsApp identity.
 type Contact struct {
-	ID         string          `json:"id"`
-	Phone      string          `json:"phone"`
-	BSUID      *string         `json:"bsuid,omitempty"`
-	ExternalID *string         `json:"external_id,omitempty"`
-	Name       string          `json:"name"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
-	Status     string          `json:"status"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
-	DeletedAt  *time.Time      `json:"deleted_at,omitempty"`
+	ID          string          `json:"id"`
+	Phone       string          `json:"phone"`
+	BSUID       *string         `json:"bsuid,omitempty"`
+	ExternalID  *string         `json:"external_id,omitempty"`
+	WhatsAppID  *string         `json:"whatsapp_id,omitempty"`
+	Name        string          `json:"name"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	Status      string          `json:"status"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	DeletedAt   *time.Time      `json:"deleted_at,omitempty"`
 }
 
 // InboundEvent represents a raw webhook event received from WhatsApp.
@@ -26,6 +27,7 @@ type InboundEvent struct {
 	SourceID    string          `json:"source_id"`
 	Phone       string          `json:"phone"`
 	BSUID       *string         `json:"bsuid,omitempty"`
+	WhatsAppID  *string         `json:"whatsapp_id,omitempty"`
 	DisplayName string          `json:"display_name,omitempty"`
 	Source      string          `json:"source"`
 	RawPayload  json.RawMessage `json:"raw_payload,omitempty"`

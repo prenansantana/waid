@@ -58,7 +58,7 @@ func (s *Server) createContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	normalized, err := phone.Normalize(req.Phone)
+	normalized, err := phone.Normalize(req.Phone, s.config.Resolver.DefaultCountry)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid phone number")
 		return
@@ -202,7 +202,7 @@ func (s *Server) importContacts(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	contacts, err := parseContacts(file, header.Filename, header.Header.Get("Content-Type"))
+	contacts, err := parseContacts(file, header.Filename, header.Header.Get("Content-Type"), s.config.Resolver.DefaultCountry)
 	if err != nil {
 		respondError(w, http.StatusUnprocessableEntity, err.Error())
 		return

@@ -13,15 +13,16 @@ import (
 //
 // Expected payload shape:
 //
-//	{"phone": "+5511999990000", "name": "John", "metadata": {...}}
+//	{"phone": "+5511999990000", "name": "John", "whatsapp_id": "...", "metadata": {...}}
 type GenericAdapter struct{}
 
 func (a *GenericAdapter) Name() string { return "generic" }
 
 type genericPayload struct {
-	Phone    string          `json:"phone"`
-	Name     string          `json:"name"`
-	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Phone      string          `json:"phone"`
+	Name       string          `json:"name"`
+	WhatsAppID string          `json:"whatsapp_id,omitempty"`
+	Metadata   json.RawMessage `json:"metadata,omitempty"`
 }
 
 func (a *GenericAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error) {
@@ -34,9 +35,14 @@ func (a *GenericAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, err
 		return nil, errMissingField("phone")
 	}
 
-	normalized, err := phone.Normalize(p.Phone)
+	normalized, err := phone.Normalize(p.Phone, "")
 	if err != nil {
 		return nil, err
+	}
+
+	var whatsAppID *string
+	if p.WhatsAppID != "" {
+		whatsAppID = &p.WhatsAppID
 	}
 
 	raw, _ := json.Marshal(p)
@@ -44,6 +50,7 @@ func (a *GenericAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, err
 		SourceID:    p.Phone,
 		Phone:       normalized,
 		DisplayName: p.Name,
+		WhatsAppID:  whatsAppID,
 		Source:      a.Name(),
 		RawPayload:  json.RawMessage(raw),
 		Timestamp:   time.Now().UTC(),

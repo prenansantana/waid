@@ -56,6 +56,10 @@ func (m *mockStore) FindByExternalID(_ context.Context, _ string) (*model.Contac
 	return nil, store.ErrNotFound
 }
 
+func (m *mockStore) FindByWhatsAppID(_ context.Context, _ string) (*model.Contact, error) {
+	return nil, store.ErrNotFound
+}
+
 func (m *mockStore) FindByID(_ context.Context, id string) (*model.Contact, error) {
 	c, ok := m.byID[id]
 	if !ok {
@@ -130,7 +134,7 @@ func TestResolve_BSUIDMatch(t *testing.T) {
 	c.BSUID = strPtr(bsuID)
 	s.add(c)
 
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	evt := model.InboundEvent{
 		Phone:     "+55 11 99999-0000",
 		BSUID:     strPtr(bsuID),
@@ -156,7 +160,7 @@ func TestResolve_PhoneMatch(t *testing.T) {
 	c := model.NewContact("+5511999990001", "Bob")
 	s.add(c)
 
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	evt := model.InboundEvent{
 		Phone:     "+55 (11) 99999-0001",
 		Timestamp: time.Now(),
@@ -180,7 +184,7 @@ func TestResolve_BSUIDBackfill(t *testing.T) {
 	s.add(c)
 
 	bsuID := "BR.carol12345678" // valid BSUID
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	evt := model.InboundEvent{
 		Phone:     "+5511999990002",
 		BSUID:     strPtr(bsuID),
@@ -201,7 +205,7 @@ func TestResolve_BSUIDBackfill(t *testing.T) {
 
 func TestResolve_AutoCreate(t *testing.T) {
 	s := newMockStore()
-	r := resolver.New(s, true, testLogger())
+	r := resolver.New(s, true, "BR", testLogger())
 	evt := model.InboundEvent{
 		Phone:       "+5511999990003",
 		DisplayName: "Dave",
@@ -227,7 +231,7 @@ func TestResolve_AutoCreate(t *testing.T) {
 
 func TestResolve_NotFound(t *testing.T) {
 	s := newMockStore()
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	evt := model.InboundEvent{
 		Phone:     "+5511999990099",
 		Timestamp: time.Now(),
@@ -249,7 +253,7 @@ func TestLookup_ByPhone(t *testing.T) {
 	c := model.NewContact("+5511999990010", "Eve")
 	s.add(c)
 
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	result, err := r.Lookup(context.Background(), "+55 11 99999-0010")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -266,7 +270,7 @@ func TestLookup_ByBSUID(t *testing.T) {
 	c.BSUID = strPtr(bsuID)
 	s.add(c)
 
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	result, err := r.Lookup(context.Background(), bsuID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -281,12 +285,90 @@ func TestLookup_ByBSUID(t *testing.T) {
 
 func TestLookup_NotFound(t *testing.T) {
 	s := newMockStore()
-	r := resolver.New(s, false, testLogger())
+	r := resolver.New(s, false, "BR", testLogger())
 	result, err := r.Lookup(context.Background(), "+5511000000000")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result.MatchType != "not_found" {
 		t.Errorf("expected not_found, got %q", result.MatchType)
+	}
+}
+
+func TestResolve_AutoCreate_WithDisplayName(t *testing.T) {
+	s := newMockStore()
+	r := resolver.New(s, true, "BR", testLogger())
+	waID := "5511999990050@c.us"
+	evt := model.InboundEvent{
+		Phone:       "+5511999990050",
+		DisplayName: "Grace",
+		WhatsAppID:  strPtr(waID),
+		Timestamp:   time.Now(),
+	}
+	result, err := r.Resolve(context.Background(), evt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.MatchType != "created" {
+		t.Errorf("expected match_type=created, got %q", result.MatchType)
+	}
+	if result.Contact.Name != "Grace" {
+		t.Errorf("expected Name=Grace, got %q", result.Contact.Name)
+	}
+	if result.Contact.WhatsAppID == nil || *result.Contact.WhatsAppID != waID {
+		t.Errorf("expected WhatsAppID=%s, got %v", waID, result.Contact.WhatsAppID)
+	}
+	// Metadata should have whatsapp_name set.
+	if len(result.Contact.Metadata) == 0 {
+		t.Error("expected metadata to be non-empty")
+	}
+}
+
+func TestResolve_ExistingContact_MetadataWhatsAppName(t *testing.T) {
+	s := newMockStore()
+	c := model.NewContact("+5511999990051", "")
+	s.add(c)
+
+	r := resolver.New(s, false, "BR", testLogger())
+	evt := model.InboundEvent{
+		Phone:       "+5511999990051",
+		DisplayName: "Henry",
+		Timestamp:   time.Now(),
+	}
+	result, err := r.Resolve(context.Background(), evt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.MatchType != "phone" {
+		t.Errorf("expected match_type=phone, got %q", result.MatchType)
+	}
+	// Name should be backfilled.
+	if result.Contact.Name != "Henry" {
+		t.Errorf("expected Name=Henry, got %q", result.Contact.Name)
+	}
+	// Metadata should have whatsapp_name.
+	if len(result.Contact.Metadata) == 0 {
+		t.Error("expected metadata to be non-empty")
+	}
+}
+
+func TestResolve_ExistingContact_WhatsAppIDBackfill(t *testing.T) {
+	s := newMockStore()
+	c := model.NewContact("+5511999990052", "Ivan")
+	s.add(c)
+
+	waID := "5511999990052@s.whatsapp.net"
+	r := resolver.New(s, false, "BR", testLogger())
+	evt := model.InboundEvent{
+		Phone:      "+5511999990052",
+		WhatsAppID: strPtr(waID),
+		Timestamp:  time.Now(),
+	}
+	result, err := r.Resolve(context.Background(), evt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contact.WhatsAppID == nil || *result.Contact.WhatsAppID != waID {
+		t.Errorf("expected WhatsAppID=%s to be backfilled, got %v", waID, result.Contact.WhatsAppID)
 	}
 }
