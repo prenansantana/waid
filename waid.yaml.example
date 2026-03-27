@@ -1,6 +1,6 @@
 server:
   port: 8080
-  api_key: "change-me"
+  api_key: ""  # REQUIRED — minimum 16 characters. Generate with: openssl rand -hex 32
 
 database:
   driver: sqlite   # sqlite | postgres

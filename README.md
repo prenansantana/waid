@@ -101,24 +101,62 @@ Staff follows up and links to full record
 
 ## Quickstart
 
-### Docker
+### 1. Generate an API key (required)
+
+WAID requires an API key to start. Generate one:
 
 ```bash
-docker run -p 8080:8080 ghcr.io/prenansantana/waid
+export WAID_SERVER_API_KEY=$(openssl rand -hex 32)
 ```
 
-### Binary
+The key must be at least 16 characters. All authenticated endpoints require the `X-API-Key` header.
 
-Download the latest release from [GitHub Releases](https://github.com/prenansantana/waid/releases), then:
+### 2. Run WAID
+
+**Docker:**
 
 ```bash
+docker run -p 8080:8080 -e WAID_SERVER_API_KEY=$WAID_SERVER_API_KEY ghcr.io/prenansantana/waid
+```
+
+**Binary:**
+
+Download from [GitHub Releases](https://github.com/prenansantana/waid/releases):
+
+```bash
+export WAID_SERVER_API_KEY=$(openssl rand -hex 32)
 ./waid
 ```
 
-### Docker Compose
+**Docker Compose:**
+
+Edit `deploy/docker/docker-compose.yml` and set `WAID_SERVER_API_KEY`, then:
 
 ```bash
 docker compose -f deploy/docker/docker-compose.yml up
+```
+
+### 3. Verify it's running
+
+```bash
+curl http://localhost:8080/health
+# → {"status":"ok","database":"ok","version":"..."}
+```
+
+### 4. Create your first contact
+
+```bash
+curl -X POST http://localhost:8080/contacts \
+  -H "X-API-Key: $WAID_SERVER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "(11) 99999-0000", "name": "João Silva"}'
+```
+
+### 5. Resolve an identity
+
+```bash
+curl http://localhost:8080/resolve/+5511999990000 \
+  -H "X-API-Key: $WAID_SERVER_API_KEY"
 ```
 
 ---
