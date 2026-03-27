@@ -25,6 +25,7 @@ type genericPayload struct {
 }
 
 func (a *GenericAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error) {
+	defer r.Body.Close()
 	var p genericPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		return nil, err

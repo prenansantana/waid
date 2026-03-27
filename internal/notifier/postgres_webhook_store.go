@@ -10,36 +10,25 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prenansantana/waid/internal/model"
-	"github.com/prenansantana/waid/internal/store"
-	_ "modernc.org/sqlite"
 )
 
-// WebhookStore is the persistence interface for webhook targets.
-type WebhookStore interface {
-	CreateWebhook(ctx context.Context, wh *model.WebhookTarget) error
-	ListWebhooks(ctx context.Context) ([]model.WebhookTarget, error)
-	GetWebhook(ctx context.Context, id string) (*model.WebhookTarget, error)
-	DeleteWebhook(ctx context.Context, id string) error
-	Close() error
-}
-
-// SQLiteWebhookStore is a WebhookStore backed by SQLite.
-type SQLiteWebhookStore struct {
+// PostgresWebhookStore is a WebhookStore backed by PostgreSQL.
+type PostgresWebhookStore struct {
 	db *sql.DB
 }
 
-// NewSQLiteWebhookStore returns a SQLiteWebhookStore using the provided db.
-func NewSQLiteWebhookStore(db *sql.DB) *SQLiteWebhookStore {
-	return &SQLiteWebhookStore{db: db}
+// NewPostgresWebhookStore returns a PostgresWebhookStore using the provided db.
+func NewPostgresWebhookStore(db *sql.DB) *PostgresWebhookStore {
+	return &PostgresWebhookStore{db: db}
 }
 
 // Close closes the underlying database connection.
-func (s *SQLiteWebhookStore) Close() error {
+func (s *PostgresWebhookStore) Close() error {
 	return s.db.Close()
 }
 
 // CreateWebhook inserts a new WebhookTarget. If wh.ID is empty a new UUID is generated.
-func (s *SQLiteWebhookStore) CreateWebhook(ctx context.Context, wh *model.WebhookTarget) error {
+func (s *PostgresWebhookStore) CreateWebhook(ctx context.Context, wh *model.WebhookTarget) error {
 	if wh.ID == "" {
 		wh.ID = uuid.New().String()
 	}
@@ -53,9 +42,8 @@ func (s *SQLiteWebhookStore) CreateWebhook(ctx context.Context, wh *model.Webhoo
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO webhook_targets (id, url, events, secret, active, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		wh.ID, wh.URL, string(eventsJSON), wh.Secret, wh.Active,
-		wh.CreatedAt.Format(time.RFC3339Nano),
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		wh.ID, wh.URL, string(eventsJSON), wh.Secret, wh.Active, wh.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("notifier: create webhook: %w", err)
@@ -64,7 +52,7 @@ func (s *SQLiteWebhookStore) CreateWebhook(ctx context.Context, wh *model.Webhoo
 }
 
 // ListWebhooks returns all active webhook targets.
-func (s *SQLiteWebhookStore) ListWebhooks(ctx context.Context) ([]model.WebhookTarget, error) {
+func (s *PostgresWebhookStore) ListWebhooks(ctx context.Context) ([]model.WebhookTarget, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, url, events, secret, active, created_at FROM webhook_targets WHERE active = true`,
 	)
@@ -75,7 +63,7 @@ func (s *SQLiteWebhookStore) ListWebhooks(ctx context.Context) ([]model.WebhookT
 
 	var webhooks []model.WebhookTarget
 	for rows.Next() {
-		wh, err := scanWebhook(rows)
+		wh, err := scanPgWebhook(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -88,11 +76,11 @@ func (s *SQLiteWebhookStore) ListWebhooks(ctx context.Context) ([]model.WebhookT
 }
 
 // GetWebhook returns a single webhook target by ID.
-func (s *SQLiteWebhookStore) GetWebhook(ctx context.Context, id string) (*model.WebhookTarget, error) {
+func (s *PostgresWebhookStore) GetWebhook(ctx context.Context, id string) (*model.WebhookTarget, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, url, events, secret, active, created_at FROM webhook_targets WHERE id = ?`, id,
+		`SELECT id, url, events, secret, active, created_at FROM webhook_targets WHERE id = $1`, id,
 	)
-	wh, err := scanWebhookRow(row)
+	wh, err := scanPgWebhookRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("notifier: webhook %q not found: %w", id, err)
 	}
@@ -100,9 +88,9 @@ func (s *SQLiteWebhookStore) GetWebhook(ctx context.Context, id string) (*model.
 }
 
 // DeleteWebhook soft-deletes a webhook target by setting active = false.
-func (s *SQLiteWebhookStore) DeleteWebhook(ctx context.Context, id string) error {
+func (s *PostgresWebhookStore) DeleteWebhook(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE webhook_targets SET active = false WHERE id = ? AND active = true`, id,
+		`UPDATE webhook_targets SET active = false WHERE id = $1 AND active = true`, id,
 	)
 	if err != nil {
 		return fmt.Errorf("notifier: delete webhook: %w", err)
@@ -114,30 +102,21 @@ func (s *SQLiteWebhookStore) DeleteWebhook(ctx context.Context, id string) error
 	return nil
 }
 
-type webhookRowScanner interface {
-	Scan(dest ...any) error
+func scanPgWebhook(row webhookRowScanner) (*model.WebhookTarget, error) {
+	return scanPgWebhookRow(row)
 }
 
-func scanWebhook(row webhookRowScanner) (*model.WebhookTarget, error) {
-	return scanWebhookRow(row)
-}
-
-func scanWebhookRow(row webhookRowScanner) (*model.WebhookTarget, error) {
+func scanPgWebhookRow(row webhookRowScanner) (*model.WebhookTarget, error) {
 	var (
 		wh         model.WebhookTarget
 		eventsJSON string
-		createdAt  string
 	)
-	if err := row.Scan(&wh.ID, &wh.URL, &eventsJSON, &wh.Secret, &wh.Active, &createdAt); err != nil {
+	if err := row.Scan(&wh.ID, &wh.URL, &eventsJSON, &wh.Secret, &wh.Active, &wh.CreatedAt); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(eventsJSON), &wh.Events); err != nil {
 		return nil, fmt.Errorf("notifier: unmarshal events: %w", err)
 	}
-	t, err := store.ParseTime(createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("notifier: parse created_at: %w", err)
-	}
-	wh.CreatedAt = t
+	wh.CreatedAt = wh.CreatedAt.UTC()
 	return &wh, nil
 }

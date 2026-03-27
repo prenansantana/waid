@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -18,7 +19,7 @@ func APIKeyAuth(apiKey string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if r.Header.Get("X-API-Key") != apiKey {
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-API-Key")), []byte(apiKey)) == 0 {
 				respondError(w, http.StatusUnauthorized, "invalid or missing API key")
 				return
 			}

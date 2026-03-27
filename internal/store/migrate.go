@@ -10,8 +10,11 @@ import (
 )
 
 // RunMigrations creates the schema_migrations table if needed and executes any
-// pending up migrations in filename order.
-func RunMigrations(db *sql.DB) error {
+// pending up migrations in filename order. The driver parameter controls which
+// placeholder style to use: "postgres" uses $1, everything else uses ?.
+func RunMigrations(db *sql.DB, driver string) error {
+	ph := placeholder(driver)
+
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		name TEXT PRIMARY KEY,
 		applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -35,7 +38,7 @@ func RunMigrations(db *sql.DB) error {
 
 	for _, name := range names {
 		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, name).Scan(&count); err != nil {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE name = `+ph, name).Scan(&count); err != nil {
 			return fmt.Errorf("store: check migration %s: %w", name, err)
 		}
 		if count > 0 {
@@ -51,10 +54,18 @@ func RunMigrations(db *sql.DB) error {
 			return fmt.Errorf("store: exec migration %s: %w", name, err)
 		}
 
-		if _, err := db.Exec(`INSERT INTO schema_migrations(name) VALUES (?)`, name); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_migrations(name) VALUES (`+ph+`)`, name); err != nil {
 			return fmt.Errorf("store: record migration %s: %w", name, err)
 		}
 	}
 
 	return nil
+}
+
+// placeholder returns the correct SQL placeholder for the given driver.
+func placeholder(driver string) string {
+	if driver == "postgres" {
+		return "$1"
+	}
+	return "?"
 }

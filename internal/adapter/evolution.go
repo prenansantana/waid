@@ -33,6 +33,7 @@ type evolutionKey struct {
 }
 
 func (a *EvolutionAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error) {
+	defer r.Body.Close()
 	var p evolutionPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		return nil, err

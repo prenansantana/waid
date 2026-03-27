@@ -47,6 +47,8 @@ func (m *mockWebhookStore) DeleteWebhook(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockWebhookStore) Close() error { return nil }
+
 func TestNotify_DeliveryPayloadAndSignature(t *testing.T) {
 	secret := "testsecret"
 	event := model.IdentityEvent{

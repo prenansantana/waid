@@ -4,7 +4,6 @@ package nats
 import (
 	"fmt"
 	"log/slog"
-	"net"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -54,13 +53,8 @@ func NewNATS(cfg config.NATSConfig, logger *slog.Logger) (*NATS, error) {
 // startEmbedded launches an in-process NATS server on a random available port
 // and connects the client to it.
 func (n *NATS) startEmbedded() error {
-	port, err := randomPort()
-	if err != nil {
-		return fmt.Errorf("finding free port: %w", err)
-	}
-
 	opts := &server.Options{
-		Port:      port,
+		Port:      -1, // let the OS assign a free port (avoids TOCTOU race)
 		JetStream: true,
 		NoLog:     true,
 		NoSigs:    true,
@@ -92,7 +86,7 @@ func (n *NATS) startEmbedded() error {
 	}
 
 	n.conn = nc
-	n.logger.Info("embedded NATS server started", "url", url, "port", port)
+	n.logger.Info("embedded NATS server started", "url", url)
 	return nil
 }
 
@@ -141,15 +135,4 @@ func (n *NATS) Close() error {
 		n.logger.Info("embedded NATS server stopped")
 	}
 	return nil
-}
-
-// randomPort asks the OS for an available TCP port and returns it.
-func randomPort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-	return port, nil
 }

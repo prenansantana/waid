@@ -19,10 +19,14 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Ping(r.Context()); err != nil {
 		dbStatus = "error"
 	}
+	v := s.version
+	if v == "" {
+		v = "dev"
+	}
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status":   "ok",
 		"database": dbStatus,
-		"version":  "dev",
+		"version":  v,
 	})
 }
 
@@ -47,6 +51,7 @@ type createContactRequest struct {
 
 // createContact creates a new contact.
 func (s *Server) createContact(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 	var req createContactRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -92,6 +97,9 @@ func (s *Server) listContacts(w http.ResponseWriter, r *http.Request) {
 	if perPage < 1 {
 		perPage = 50
 	}
+	if perPage > 200 {
+		perPage = 200
+	}
 
 	opts := store.ListOpts{
 		Page:    page,
@@ -134,6 +142,7 @@ type updateContactRequest struct {
 
 // updateContact merges provided fields into an existing contact.
 func (s *Server) updateContact(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 	id := chi.URLParam(r, "id")
 	c, err := s.store.FindByID(r.Context(), id)
 	if err != nil {
@@ -215,12 +224,33 @@ type createWebhookRequest struct {
 	Secret string   `json:"secret"`
 }
 
+// webhookResponse is the public representation of a WebhookTarget with Secret omitted.
+type webhookResponse struct {
+	ID        string    `json:"id"`
+	URL       string    `json:"url"`
+	Events    []string  `json:"events"`
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// toWebhookResponse converts a WebhookTarget to a webhookResponse, omitting Secret.
+func toWebhookResponse(wh *model.WebhookTarget) webhookResponse {
+	return webhookResponse{
+		ID:        wh.ID,
+		URL:       wh.URL,
+		Events:    wh.Events,
+		Active:    wh.Active,
+		CreatedAt: wh.CreatedAt,
+	}
+}
+
 // createWebhook registers a new webhook target.
 func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
 	if s.webhookStore == nil {
 		respondError(w, http.StatusNotImplemented, "webhook store not configured")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB
 	var req createWebhookRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -239,7 +269,7 @@ func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusCreated, wh)
+	respondJSON(w, http.StatusCreated, toWebhookResponse(wh))
 }
 
 // listWebhooks returns all active webhook targets.
@@ -253,7 +283,11 @@ func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, webhooks)
+	resp := make([]webhookResponse, len(webhooks))
+	for i := range webhooks {
+		resp[i] = toWebhookResponse(&webhooks[i])
+	}
+	respondJSON(w, http.StatusOK, resp)
 }
 
 // deleteWebhook removes a webhook target by ID.

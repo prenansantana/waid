@@ -52,6 +52,7 @@ type metaContactProfile struct {
 }
 
 func (a *MetaAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error) {
+	defer r.Body.Close()
 	var p metaPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		return nil, err

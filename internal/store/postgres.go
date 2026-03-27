@@ -39,7 +39,7 @@ func NewPostgres(databaseURL string) (*PostgresStore, error) {
 	}
 	defer sqlDB.Close()
 
-	if err := RunMigrations(sqlDB); err != nil {
+	if err := RunMigrations(sqlDB, "postgres"); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -170,8 +170,8 @@ func (s *PostgresStore) List(ctx context.Context, opts ListOpts) ([]model.Contac
 		args  []any
 	)
 	if opts.Query != "" {
-		like := "%" + opts.Query + "%"
-		where = " AND (phone LIKE $1 OR name LIKE $1 OR external_id LIKE $1)"
+		like := "%" + escapeLike(opts.Query) + "%"
+		where = ` AND (phone LIKE $1 ESCAPE '\' OR name LIKE $1 ESCAPE '\' OR external_id LIKE $1 ESCAPE '\')`
 		args = append(args, like)
 	}
 
@@ -211,6 +211,9 @@ func (s *PostgresStore) List(ctx context.Context, opts ListOpts) ([]model.Contac
 }
 
 // BulkUpsert inserts or updates a slice of Contacts in a single transaction.
+// Each row is wrapped in a SAVEPOINT so a single failure does not abort the
+// whole transaction. A pre-flight SELECT determines whether each row is an
+// insert or an update for accurate reporting.
 func (s *PostgresStore) BulkUpsert(ctx context.Context, contacts []model.Contact) (*model.ImportReport, error) {
 	report := &model.ImportReport{Total: len(contacts)}
 
@@ -232,7 +235,24 @@ func (s *PostgresStore) BulkUpsert(ctx context.Context, contacts []model.Contact
 		c.UpdatedAt = now
 		meta := metaJSON(c.Metadata)
 
-		tag, err := tx.Exec(ctx,
+		// Determine whether the row already exists before upserting.
+		var existing int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM contacts WHERE phone = $1 AND deleted_at IS NULL`, c.Phone,
+		).Scan(&existing); err != nil {
+			report.Errors++
+			report.Details = append(report.Details, model.ImportError{Row: i, Phone: c.Phone, Reason: err.Error()})
+			continue
+		}
+
+		sp := fmt.Sprintf("sp_%d", i)
+		if _, err := tx.Exec(ctx, `SAVEPOINT `+sp); err != nil {
+			report.Errors++
+			report.Details = append(report.Details, model.ImportError{Row: i, Phone: c.Phone, Reason: err.Error()})
+			continue
+		}
+
+		_, err := tx.Exec(ctx,
 			`INSERT INTO contacts (id, phone, bsuid, external_id, name, metadata, status, created_at, updated_at)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 			 ON CONFLICT(phone) DO UPDATE SET
@@ -245,14 +265,22 @@ func (s *PostgresStore) BulkUpsert(ctx context.Context, contacts []model.Contact
 			c.ID, c.Phone, c.BSUID, c.ExternalID, c.Name, meta, c.Status, c.CreatedAt, c.UpdatedAt,
 		)
 		if err != nil {
+			if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT `+sp); rbErr != nil {
+				return nil, fmt.Errorf("store: rollback savepoint %s: %w", sp, rbErr)
+			}
 			report.Errors++
 			report.Details = append(report.Details, model.ImportError{Row: i, Phone: c.Phone, Reason: err.Error()})
 			continue
 		}
-		if tag.RowsAffected() == 1 {
-			report.Created++
-		} else {
+
+		if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT `+sp); err != nil {
+			return nil, fmt.Errorf("store: release savepoint %s: %w", sp, err)
+		}
+
+		if existing > 0 {
 			report.Updated++
+		} else {
+			report.Created++
 		}
 	}
 
@@ -270,7 +298,7 @@ const pgContactColumns = `id, phone, bsuid, external_id, name, metadata, status,
 func pgScanContact(row pgx.Row) (*model.Contact, error) {
 	c, err := pgScanContactRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("store: not found: %w", err)
+		return nil, ErrNotFound
 	}
 	return c, err
 }

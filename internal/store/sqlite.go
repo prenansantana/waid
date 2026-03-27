@@ -38,7 +38,7 @@ func NewSQLite(dbPath string) (*SQLiteStore, error) {
 		}
 	}
 
-	if err := RunMigrations(db); err != nil {
+	if err := RunMigrations(db, "sqlite"); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -166,8 +166,8 @@ func (s *SQLiteStore) List(ctx context.Context, opts ListOpts) ([]model.Contact,
 		args  []any
 	)
 	if opts.Query != "" {
-		like := "%" + opts.Query + "%"
-		where = " AND (phone LIKE ? OR name LIKE ? OR external_id LIKE ?)"
+		like := "%" + escapeLike(opts.Query) + "%"
+		where = ` AND (phone LIKE ? ESCAPE '\' OR name LIKE ? ESCAPE '\' OR external_id LIKE ? ESCAPE '\')`
 		args = append(args, like, like, like)
 	}
 
@@ -296,7 +296,7 @@ type rowScanner interface {
 func scanContact(row *sql.Row) (*model.Contact, error) {
 	c, err := scanContactRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("store: not found: %w", err)
+		return nil, ErrNotFound
 	}
 	return c, err
 }
@@ -327,14 +327,14 @@ func scanContactRow(row rowScanner) (*model.Contact, error) {
 		c.Metadata = json.RawMessage(meta.String)
 	}
 	var err error
-	if c.CreatedAt, err = parseTime(createdAt); err != nil {
+	if c.CreatedAt, err = ParseTime(createdAt); err != nil {
 		return nil, fmt.Errorf("store: parse created_at: %w", err)
 	}
-	if c.UpdatedAt, err = parseTime(updatedAt); err != nil {
+	if c.UpdatedAt, err = ParseTime(updatedAt); err != nil {
 		return nil, fmt.Errorf("store: parse updated_at: %w", err)
 	}
 	if deletedAt.Valid && deletedAt.String != "" {
-		t, err := parseTime(deletedAt.String)
+		t, err := ParseTime(deletedAt.String)
 		if err != nil {
 			return nil, fmt.Errorf("store: parse deleted_at: %w", err)
 		}
@@ -351,18 +351,19 @@ func metaJSON(meta json.RawMessage) string {
 	return string(meta)
 }
 
-// parseTime tries RFC3339Nano then the SQLite default TIMESTAMP format.
-func parseTime(s string) (time.Time, error) {
-	formats := []string{
-		time.RFC3339Nano,
-		"2006-01-02T15:04:05Z",
-		"2006-01-02 15:04:05",
-		"2006-01-02 15:04:05.999999999",
-	}
-	for _, f := range formats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t.UTC(), nil
+// escapeLike escapes LIKE pattern special characters (%, _, \) with a backslash.
+func escapeLike(s string) string {
+	var buf []byte
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\', '%', '_':
+			buf = append(buf, '\\', s[i])
+		default:
+			buf = append(buf, s[i])
 		}
 	}
-	return time.Time{}, fmt.Errorf("unrecognised time format: %q", s)
+	if buf == nil {
+		return s
+	}
+	return string(buf)
 }

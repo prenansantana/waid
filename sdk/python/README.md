@@ -132,7 +132,7 @@ with open("contacts.csv", "rb") as f:
 # report.created → int
 # report.updated → int
 # report.errors  → int
-# report.details → list[ImportError]
+# report.details → list[ImportRowError]
 ```
 
 ### Webhooks
@@ -176,7 +176,7 @@ except WAIDError as e:
 | `Contact` | `id`, `phone`, `name`, `status`, `created_at`, `updated_at`, `bsuid?`, `external_id?`, `metadata?`, `deleted_at?` |
 | `IdentityResult` | `match_type`, `confidence`, `resolved_at`, `contact?` |
 | `ImportReport` | `total`, `created`, `updated`, `errors`, `details` |
-| `ImportError` | `row`, `phone`, `reason` |
+| `ImportRowError` | `row`, `phone`, `reason` |
 | `WebhookTarget` | `id`, `url`, `events`, `active`, `created_at`, `secret?` |
 | `HealthStatus` | `status`, `database`, `version` |
 | `PaginatedContacts` | `data`, `total`, `page`, `per_page` |

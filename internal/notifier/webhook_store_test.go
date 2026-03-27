@@ -16,7 +16,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open in-memory sqlite: %v", err)
 	}
-	if err := store.RunMigrations(db); err != nil {
+	if err := store.RunMigrations(db, "sqlite"); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })

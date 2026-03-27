@@ -50,6 +50,9 @@ func (r *Resolver) Resolve(ctx context.Context, evt model.InboundEvent) (*model.
 	// 2. BSUID lookup.
 	if evt.BSUID != nil && *evt.BSUID != "" {
 		contact, err := r.store.FindByBSUID(ctx, *evt.BSUID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
 		if err == nil && contact != nil {
 			return &model.IdentityResult{
 				Contact:    contact,
@@ -62,6 +65,9 @@ func (r *Resolver) Resolve(ctx context.Context, evt model.InboundEvent) (*model.
 
 	// 3. Phone lookup.
 	contact, err := r.store.FindByPhone(ctx, normalized)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
 	if err == nil && contact != nil {
 		// Backfill BSUID if the event carries one but the contact doesn't.
 		if evt.BSUID != nil && *evt.BSUID != "" && (contact.BSUID == nil || *contact.BSUID == "") {

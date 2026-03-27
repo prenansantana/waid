@@ -39,7 +39,7 @@ func (m *mockStore) add(c *model.Contact) {
 func (m *mockStore) FindByPhone(_ context.Context, phone string) (*model.Contact, error) {
 	c, ok := m.byPhone[phone]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, store.ErrNotFound
 	}
 	return c, nil
 }
@@ -47,19 +47,19 @@ func (m *mockStore) FindByPhone(_ context.Context, phone string) (*model.Contact
 func (m *mockStore) FindByBSUID(_ context.Context, id string) (*model.Contact, error) {
 	c, ok := m.byBSUID[id]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, store.ErrNotFound
 	}
 	return c, nil
 }
 
 func (m *mockStore) FindByExternalID(_ context.Context, _ string) (*model.Contact, error) {
-	return nil, errors.New("not found")
+	return nil, store.ErrNotFound
 }
 
 func (m *mockStore) FindByID(_ context.Context, id string) (*model.Contact, error) {
 	c, ok := m.byID[id]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, store.ErrNotFound
 	}
 	return c, nil
 }

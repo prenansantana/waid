@@ -1,11 +1,15 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/prenansantana/waid/internal/adapter"
+	"github.com/prenansantana/waid/internal/model"
 )
 
 var adapterRegistry = adapter.DefaultRegistry()
@@ -27,7 +31,50 @@ func (s *Server) inboundHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, event)
+	result, err := s.resolver.Resolve(r.Context(), *event)
+	if err != nil {
+		s.logger.Error("failed to resolve identity", "source", source, "error", err)
+		respondError(w, http.StatusInternalServerError, "identity resolution failed")
+		return
+	}
+
+	var eventType string
+	switch result.MatchType {
+	case "phone", "bsuid":
+		eventType = model.EventContactResolved
+	case "created":
+		eventType = model.EventContactCreated
+	default:
+		eventType = model.EventContactNotFound
+	}
+
+	identityEvent := model.IdentityEvent{
+		Type:      eventType,
+		Contact:   result.Contact,
+		Phone:     event.Phone,
+		Source:    source,
+		Timestamp: time.Now().UTC(),
+	}
+
+	if s.natsClient != nil {
+		subject := fmt.Sprintf("waid.identity.%s", eventType)
+		payload, merr := json.Marshal(identityEvent)
+		if merr == nil {
+			if perr := s.natsClient.Publish(subject, payload); perr != nil {
+				s.logger.Warn("failed to publish to NATS", "subject", subject, "error", perr)
+			}
+		}
+	}
+
+	if s.notifier != nil {
+		go func() {
+			if nerr := s.notifier.Notify(r.Context(), identityEvent); nerr != nil {
+				s.logger.Warn("notifier error", "error", nerr)
+			}
+		}()
+	}
+
+	respondJSON(w, http.StatusOK, result)
 }
 
 // metaVerifyHandler handles GET /inbound/meta for Meta webhook verification.

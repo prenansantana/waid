@@ -19,8 +19,9 @@ type Config struct {
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
-	Port   int    `mapstructure:"port"`
-	APIKey string `mapstructure:"api_key"`
+	Port        int      `mapstructure:"port"`
+	APIKey      string   `mapstructure:"api_key"`
+	CORSOrigins []string `mapstructure:"cors_origins"`
 }
 
 // DatabaseConfig holds database connection settings.
@@ -60,6 +61,7 @@ func Load() (*Config, error) {
 	// Set defaults
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.api_key", "")
+	v.SetDefault("server.cors_origins", []string{"*"})
 	v.SetDefault("database.driver", "sqlite")
 	v.SetDefault("database.url", "waid.db")
 	v.SetDefault("nats.embedded", true)

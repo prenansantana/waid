@@ -28,6 +28,7 @@ type wahaInner struct {
 }
 
 func (a *WAHAAdapter) ParseWebhook(r *http.Request) (*model.InboundEvent, error) {
+	defer r.Body.Close()
 	var p wahaPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		return nil, err

@@ -3,9 +3,13 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/prenansantana/waid/internal/model"
 )
+
+// ErrNotFound is returned by Find* methods when no matching record exists.
+var ErrNotFound = errors.New("not found")
 
 // ListOpts carries pagination and search parameters for list queries.
 type ListOpts struct {
