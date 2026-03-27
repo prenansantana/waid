@@ -51,7 +51,7 @@ changelog:
 dockers:
   - image_templates:
       - "ghcr.io/prenansantana/waid:{{ .Tag }}-amd64"
-    dockerfile: deploy/docker/Dockerfile
+    dockerfile: deploy/docker/Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -63,7 +63,7 @@ dockers:
 
   - image_templates:
       - "ghcr.io/prenansantana/waid:{{ .Tag }}-arm64"
-    dockerfile: deploy/docker/Dockerfile
+    dockerfile: deploy/docker/Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
       - "--platform=linux/arm64"

@@ -1,0 +1,8 @@
+# Dockerfile for GoReleaser — receives pre-built binary only
+FROM scratch
+
+COPY waid /waid
+
+EXPOSE 8080
+
+ENTRYPOINT ["/waid"]
