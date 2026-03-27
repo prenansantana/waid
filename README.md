@@ -404,11 +404,15 @@ Removes a webhook target by ID.
 
 ## SDKs
 
-| Language   | Package                                                        |
-|------------|----------------------------------------------------------------|
-| TypeScript | `npm install @waid/client` *(coming soon)*                    |
-| Python     | `pip install waid-client` *(coming soon)*                     |
-| Go         | `go get github.com/prenansantana/waid/sdk/go` *(coming soon)* |
+Official client libraries for integrating with WAID:
+
+| Language   | Package | Install | Dependencies |
+|------------|---------|---------|-------------|
+| TypeScript | [`sdk/typescript/`](sdk/typescript/) | `npm install @waid/sdk` | Zero (native fetch, Node 18+) |
+| Python     | [`sdk/python/`](sdk/python/) | `pip install waid-sdk` | httpx (sync + async) |
+| Go         | [`sdk/go/`](sdk/go/) | `go get github.com/prenansantana/waid-sdk-go` | Zero (stdlib only) |
+
+Each SDK provides a typed client with methods for all API endpoints: `resolve`, `createContact`, `listContacts`, `importContacts`, `createWebhook`, `health`, and more. See the SDK README in each directory for usage examples.
 
 ---
 
@@ -416,7 +420,7 @@ Removes a webhook target by ID.
 
 | Component       | Technology                                              |
 |-----------------|---------------------------------------------------------|
-| Language        | Go 1.22+                                                |
+| Language        | Go 1.26+                                                |
 | HTTP router     | [chi](https://github.com/go-chi/chi)                    |
 | Database        | SQLite (default) / PostgreSQL                           |
 | Messaging       | NATS (embedded or external)                             |
